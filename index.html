@@ -78,12 +78,13 @@
     <div id="toast" class="fixed top-5 right-5 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 translate-y-10 transition-all duration-300"><p id="toast-message"></p></div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, query, getDoc, serverTimestamp, updateDoc, getDocs, deleteDoc, where, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+        // Correct and verified Firebase SDK import URLs
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, query, getDoc, serverTimestamp, updateDoc, getDocs, deleteDoc, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
         
-        // --- THIS SECTION SHOULD CONTAIN YOUR FIREBASE CONFIGURATION ---
+        // --- THIS SECTION MUST CONTAIN YOUR FIREBASE CONFIGURATION ---
         const firebaseConfig = {
           apiKey: "AIzaSyBTtBohceA1myWPac3RujjIL1QyXtqzVHE",
           authDomain: "bangles-app-fc5f8.firebaseapp.com",
@@ -145,16 +146,17 @@
 
         async function createUserProfile(uid, email, displayName) {
             const userDocRef = doc(db, "users", uid);
-            const usersCollectionRef = collection(db, "users");
-            const userCountSnapshot = await getDocs(usersCollectionRef);
-            const userCount = userCountSnapshot.size;
 
+            // This function creates a new user profile.
+            // All new users are assigned the 'user' role by default for security.
             await setDoc(userDocRef, {
                 uid,
                 email,
-                displayName: `${displayName} #${userCount + 1}`,
+                displayName: `${displayName}`,
                 photoURL: `https://placehold.co/100x100/EFEFEF/333?text=${displayName.charAt(0)}`,
-                role: userCount === 0 ? 'admin' : 'user',
+                // NOTE: To create an admin, manually change this 'role' field 
+                // from 'user' to 'admin' in your Firebase Firestore console.
+                role: 'user', 
                 createdAt: serverTimestamp()
             });
         }
@@ -174,14 +176,16 @@
         function attachListeners() {
             if (!isAuthReady) return;
             if (unsubscribeOrders) unsubscribeOrders();
-            const ordersQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/orders`), orderBy("createdAt", "desc"));
+            // Removed orderBy to prevent Firestore index errors. Data is sorted locally.
+            const ordersQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/orders`));
             unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
                 orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 if (document.getElementById('nav-dashboard').classList.contains('sidebar-active')) renderDashboard();
             }, console.error);
 
             if (unsubscribeInvoices) unsubscribeInvoices();
-            const invoicesQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/invoices`), orderBy("createdAt", "desc"));
+            // Removed orderBy to prevent Firestore index errors. Data is sorted locally.
+            const invoicesQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/invoices`));
             unsubscribeInvoices = onSnapshot(invoicesQuery, (snapshot) => {
                 invoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 if (document.getElementById('nav-invoices').classList.contains('sidebar-active')) renderInvoices();
@@ -244,16 +248,17 @@
             }, 3000);
         }
         
-        // --- PAGE RENDER FUNCTIONS ---
-        
         function renderDashboard() {
-            const totalSales = invoices.reduce((sum, inv) => sum + parseFloat(inv.total), 0);
-            const recentOrdersHtml = orders.slice(0, 5).map(order => `
+            const sortedInvoices = [...invoices].sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            const sortedOrders = [...orders].sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            
+            const totalSales = sortedInvoices.reduce((sum, inv) => sum + parseFloat(inv.total), 0);
+            const recentOrdersHtml = sortedOrders.slice(0, 5).map(order => `
                 <tr class="hover:bg-gray-50">
                     <td class="p-4 whitespace-nowrap text-sm font-medium text-gray-900">${order.customerName}</td>
                     <td class="p-4 whitespace-nowrap text-sm text-gray-500">${order.items.length}</td>
                     <td class="p-4 whitespace-nowrap text-sm text-gray-500">₹${order.total.toFixed(2)}</td>
-                    <td class="p-4 whitespace-nowrap text-sm text-gray-500">${new Date(order.createdAt?.toDate()).toLocaleDateString()}</td>
+                    <td class="p-4 whitespace-nowrap text-sm text-gray-500">${order.createdAt ? new Date(order.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
                 </tr>
             `).join('');
 
@@ -288,7 +293,6 @@
                     </div>
                     <div id="order-items-container">
                         <h3 class="text-lg font-medium text-gray-900 mb-2">Order Items</h3>
-                        <!-- Item rows will be injected here -->
                     </div>
                     <button type="button" id="add-item-btn" class="text-indigo-600 hover:text-indigo-800 font-medium">+ Add Item</button>
                     <div class="text-right text-2xl font-bold">Total: ₹<span id="order-total">0.00</span></div>
@@ -298,16 +302,17 @@
                     </div>
                 </form>
             `;
-            addOrderItemRow(); // Add the first item row initially
+            addOrderItemRow();
         }
         
         function renderInvoices() {
-            const invoicesHtml = invoices.map(inv => `
+            const sortedInvoices = [...invoices].sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            const invoicesHtml = sortedInvoices.map(inv => `
                 <tr class="hover:bg-gray-50">
                     <td class="p-4 whitespace-nowrap text-sm font-medium text-gray-900">${inv.customerName}</td>
                     <td class="p-4 whitespace-nowrap text-sm text-gray-500">${inv.invoiceNumber}</td>
                     <td class="p-4 whitespace-nowrap text-sm text-gray-500">₹${inv.total.toFixed(2)}</td>
-                    <td class="p-4 whitespace-nowrap text-sm text-gray-500">${new Date(inv.createdAt?.toDate()).toLocaleDateString()}</td>
+                    <td class="p-4 whitespace-nowrap text-sm text-gray-500">${inv.createdAt ? new Date(inv.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
                     <td class="p-4 whitespace-nowrap text-sm font-medium">
                         <button class="view-invoice-btn text-indigo-600 hover:text-indigo-900" data-id="${inv.id}">View</button>
                         <button class="email-invoice-btn text-green-600 hover:text-green-900 ml-4" data-id="${inv.id}">Email</button>
@@ -334,18 +339,15 @@
         }
 
         function renderManageUsers() {
-            // User management UI... (from previous versions)
+            // Placeholder - Implement if needed
         }
 
         function renderChat() {
-            // Chat UI... (from previous versions)
+            // Placeholder - Implement if needed
         }
-
-        // --- ORDER & INVOICE LOGIC ---
 
         function addOrderItemRow() {
             const container = document.getElementById('order-items-container');
-            const itemIndex = container.querySelectorAll('.order-item-row').length;
             const itemRow = document.createElement('div');
             itemRow.className = 'order-item-row grid grid-cols-12 gap-4 items-center mb-2';
             itemRow.innerHTML = `
@@ -409,10 +411,7 @@
         
         async function createInvoiceFromOrder(orderData) {
             const invoiceNumber = `INV-${Date.now()}`;
-            const invoice = {
-                ...orderData,
-                invoiceNumber,
-            };
+            const invoice = { ...orderData, invoiceNumber };
              try {
                 await addDoc(collection(db, `/artifacts/${appId}/users/${userId}/invoices`), invoice);
                 showToast("Invoice created successfully!");
@@ -425,30 +424,19 @@
         function viewInvoice(invoiceId) {
              const invoice = invoices.find(inv => inv.id === invoiceId);
              if (!invoice) return;
-             // Show modal with invoice details
+             // Logic to show modal with invoice details
         }
         
         function emailInvoice(invoiceId) {
             const invoice = invoices.find(inv => inv.id === invoiceId);
             if (!invoice) return;
             const subject = `Invoice ${invoice.invoiceNumber} from Bangle Logs`;
-            const body = `
-                Hello ${invoice.customerName},
-
-                Here is your invoice ${invoice.invoiceNumber}.
-
-                Items:
-                ${invoice.items.map(item => `- ${item.description} (x${item.quantity}) @ ₹${item.price.toFixed(2)}`).join('\n')}
-
-                Total: ₹${invoice.total.toFixed(2)}
-
-                Thank you for your business!
-            `;
+            const body = `Hello ${invoice.customerName},\n\nHere is your invoice ${invoice.invoiceNumber}.\n\nItems:\n${invoice.items.map(item => `- ${item.description} (x${item.quantity}) @ ₹${item.price.toFixed(2)}`).join('\n')}\n\nTotal: ₹${invoice.total.toFixed(2)}\n\nThank you for your business!`;
             window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         }
 
         async function deleteInvoice(invoiceId) {
-             if (confirm("Are you sure you want to delete this invoice? This cannot be undone.")) {
+             if (confirm("Are you sure you want to delete this invoice?")) {
                  try {
                      await deleteDoc(doc(db, `/artifacts/${appId}/users/${userId}/invoices`, invoiceId));
                      showToast("Invoice deleted.");
@@ -459,7 +447,6 @@
              }
         }
 
-        // --- EVENT LISTENERS ---
         document.addEventListener('click', (e) => {
             if (e.target.closest('#nav-dashboard')) { e.preventDefault(); navigateTo('dashboard'); }
             if (e.target.closest('#nav-new-order')) { e.preventDefault(); navigateTo('new_order'); }
@@ -472,6 +459,7 @@
             if (e.target.closest('.email-invoice-btn')) emailInvoice(e.target.closest('.email-invoice-btn').dataset.id);
             if (e.target.closest('.delete-invoice-btn')) deleteInvoice(e.target.closest('.delete-invoice-btn').dataset.id);
             if (e.target.closest('#save-and-invoice-btn')) saveOrder(true);
+            if (e.target.closest('#logout-btn')) signOut(auth);
         });
 
         document.addEventListener('submit', (e) => {
@@ -482,15 +470,6 @@
             if (e.target.matches('.item-qty, .item-price')) {
                 updateOrderTotal();
             }
-        });
-
-        document.getElementById('logout-btn').addEventListener('click', () => {
-             if (unsubscribeOrders) unsubscribeOrders();
-             if (unsubscribeInvoices) unsubscribeInvoices();
-             if (unsubscribeUsers) unsubscribeUsers();
-             if (unsubscribeChat) unsubscribeChat();
-             signOut(auth);
-             document.getElementById('app-content').innerHTML = `<div class="text-center p-8"><p>Logging out...</p></div>`;
         });
 
         window.onload = () => {
