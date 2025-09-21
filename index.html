@@ -6,7 +6,8 @@
     <title>Thread Bangle Business Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest/dist/lucide.min.js"></script>
+    <!-- Updated Lucide Icons CDN for better reliability -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/lucide.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -76,6 +77,18 @@
     <div id="invoice-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden opacity-0 z-50"></div>
     <div id="user-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden opacity-0 z-50"></div>
     <div id="toast" class="fixed top-5 right-5 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 translate-y-10 transition-all duration-300"><p id="toast-message"></p></div>
+    <!-- Custom Confirmation Modal -->
+    <div id="confirm-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden opacity-0 z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-4" id="confirm-modal-title">Are you sure?</h3>
+            <p id="confirm-modal-body" class="text-gray-600 mb-6">Do you really want to delete this item? This action cannot be undone.</p>
+            <div class="flex justify-end gap-4">
+                <button id="confirm-modal-cancel" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="confirm-modal-confirm" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">Delete</button>
+            </div>
+        </div>
+    </div>
+
 
     <script type="module">
         // Correct and verified Firebase SDK import URLs
@@ -146,16 +159,11 @@
 
         async function createUserProfile(uid, email, displayName) {
             const userDocRef = doc(db, "users", uid);
-
-            // This function creates a new user profile.
-            // All new users are assigned the 'user' role by default for security.
             await setDoc(userDocRef, {
                 uid,
                 email,
                 displayName: `${displayName}`,
                 photoURL: `https://placehold.co/100x100/EFEFEF/333?text=${displayName.charAt(0)}`,
-                // NOTE: To create an admin, manually change this 'role' field 
-                // from 'user' to 'admin' in your Firebase Firestore console.
                 role: 'user', 
                 createdAt: serverTimestamp()
             });
@@ -176,7 +184,6 @@
         function attachListeners() {
             if (!isAuthReady) return;
             if (unsubscribeOrders) unsubscribeOrders();
-            // Removed orderBy to prevent Firestore index errors. Data is sorted locally.
             const ordersQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/orders`));
             unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
                 orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -184,7 +191,6 @@
             }, console.error);
 
             if (unsubscribeInvoices) unsubscribeInvoices();
-            // Removed orderBy to prevent Firestore index errors. Data is sorted locally.
             const invoicesQuery = query(collection(db, `/artifacts/${appId}/users/${userId}/invoices`));
             unsubscribeInvoices = onSnapshot(invoicesQuery, (snapshot) => {
                 invoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -435,16 +441,47 @@
             window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         }
 
+        function showConfirmModal(title, body, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('confirm-modal-title').textContent = title;
+            document.getElementById('confirm-modal-body').textContent = body;
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+
+            const confirmBtn = document.getElementById('confirm-modal-confirm');
+            const cancelBtn = document.getElementById('confirm-modal-cancel');
+            
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+            newConfirmBtn.addEventListener('click', () => {
+                onConfirm();
+                hideConfirmModal();
+            }, { once: true });
+
+            cancelBtn.addEventListener('click', hideConfirmModal, { once: true });
+        }
+
+        function hideConfirmModal() {
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
         async function deleteInvoice(invoiceId) {
-             if (confirm("Are you sure you want to delete this invoice?")) {
-                 try {
-                     await deleteDoc(doc(db, `/artifacts/${appId}/users/${userId}/invoices`, invoiceId));
-                     showToast("Invoice deleted.");
-                 } catch (error) {
-                     console.error("Error deleting invoice: ", error);
-                     showToast("Failed to delete invoice.", "error");
-                 }
-             }
+            showConfirmModal(
+                'Delete Invoice',
+                'Are you sure you want to delete this invoice? This action cannot be undone.',
+                async () => {
+                    try {
+                        await deleteDoc(doc(db, `/artifacts/${appId}/users/${userId}/invoices`, invoiceId));
+                        showToast("Invoice deleted.");
+                    } catch (error) {
+                        console.error("Error deleting invoice: ", error);
+                        showToast("Failed to delete invoice.", "error");
+                    }
+                }
+            );
         }
 
         document.addEventListener('click', (e) => {
@@ -460,6 +497,8 @@
             if (e.target.closest('.delete-invoice-btn')) deleteInvoice(e.target.closest('.delete-invoice-btn').dataset.id);
             if (e.target.closest('#save-and-invoice-btn')) saveOrder(true);
             if (e.target.closest('#logout-btn')) signOut(auth);
+            if (e.target.closest('#confirm-modal-cancel')) hideConfirmModal();
+
         });
 
         document.addEventListener('submit', (e) => {
